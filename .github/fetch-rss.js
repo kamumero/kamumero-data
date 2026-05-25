@@ -1,4 +1,16 @@
 const fs = require('fs');
+const https = require('https');
+
+// HTTP kérés függvény (node-fetch nélkül, natív https)
+function fetchUrl(url) {
+    return new Promise((resolve, reject) => {
+        https.get(url, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => resolve(data));
+        }).on('error', reject);
+    });
+}
 
 const RSS_FEEDS = [
     { name: "Telex", url: "https://telex.hu/rss", block: "tisza" },
@@ -34,17 +46,6 @@ function detectBlock(title, defaultBlock) {
     return defaultBlock;
 }
 
-async function fetchRSS(url) {
-    try {
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        return await res.text();
-    } catch(e) {
-        console.error(`Hiba ${url}:`, e.message);
-        return null;
-    }
-}
-
 function parseRSS(xml, name, defaultBlock) {
     try {
         const titleMatch = xml.match(/<title>(.*?)<\/title>/);
@@ -71,12 +72,16 @@ async function main() {
     
     for (const feed of RSS_FEEDS) {
         console.log(`Lekérés: ${feed.name}...`);
-        const xml = await fetchRSS(feed.url);
-        if (xml) {
-            const article = parseRSS(xml, feed.name, feed.block);
-            if (article) results.push(article);
+        try {
+            const xml = await fetchUrl(feed.url);
+            if (xml) {
+                const article = parseRSS(xml, feed.name, feed.block);
+                if (article) results.push(article);
+            }
+        } catch(e) {
+            console.error(`Hiba ${feed.name}:`, e.message);
         }
-        await new Promise(r => setTimeout(r, 300)); // kis szünet
+        await new Promise(r => setTimeout(r, 300));
     }
     
     console.log(`✅ ${results.length} hír betöltve`);
