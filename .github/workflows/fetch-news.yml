@@ -2,14 +2,14 @@ name: RSS hírek lekérése
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # 30 percenként
-  workflow_dispatch:          # Kézi indítás is (Actions fülön)
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # Engedély a repo módosításához
+      contents: write
     
     steps:
       - name: Repó letöltése
