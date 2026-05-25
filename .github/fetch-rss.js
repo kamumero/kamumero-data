@@ -1,5 +1,6 @@
 const fs = require('fs');
-const https = require('http');
+const https = require('https');
+const http = require('http');
 
 const RSS_FEEDS = [
     { name: "Telex", url: "https://telex.hu/rss", block: "tisza" },
@@ -21,12 +22,12 @@ const RSS_FEEDS = [
     { name: "Origo", url: "https://origo.hu/rss", block: "fidesz" }
 ];
 
-const FIDESZ_KW = ["kormány", "orban", "orbán", "fidesz", "szuverenitás", "brüsszel", "nemzeti", "konzervatív"];
-const TISZA_KW = ["magyar péter", "tisza párt", "ellenzék", "korrupció", "átláthatóság", "jogállamiság", "államadósság"];
+const FIDESZ_KW = ["kormány", "orban", "orbán", "fidesz", "szuverenitás", "brüsszel", "nemzeti", "konzervatív", "családvédelem", "hazafias"];
+const TISZA_KW = ["magyar péter", "tisza párt", "ellenzék", "kritika", "korrupció", "átláthatóság", "jogállamiság", "uniós", "kiszivárgott", "botrány", "államadósság", "infláció"];
 
-function get(url) {
+function fetchUrl(url) {
     return new Promise((resolve, reject) => {
-        const lib = url.startsWith('https') ? require('https') : require('http');
+        const lib = url.startsWith('https') ? https : http;
         lib.get(url, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
@@ -38,12 +39,24 @@ function get(url) {
 function detectBlock(title, defaultBlock) {
     if (!title) return defaultBlock;
     const lower = title.toLowerCase();
-    let f = 0, t = 0;
-    for (const kw of FIDESZ_KW) if (lower.includes(kw)) f++;
-    for (const kw of TISZA_KW) if (lower.includes(kw)) t++;
-    if (f > t && f > 0) return "fidesz";
-    if (t > f && t > 0) return "tisza";
+    let fScore = 0, tScore = 0;
+    for (const kw of FIDESZ_KW) if (lower.includes(kw)) fScore++;
+    for (const kw of TISZA_KW) if (lower.includes(kw)) tScore++;
+    if (fScore > tScore && fScore > 0) return "fidesz";
+    if (tScore > fScore && tScore > 0) return "tisza";
     return defaultBlock;
+}
+
+function cleanText(text) {
+    if (!text) return "";
+    return text
+        .replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .trim();
 }
 
 function parseRSS(xml, name, defaultBlock) {
@@ -51,25 +64,26 @@ function parseRSS(xml, name, defaultBlock) {
         const titleMatch = xml.match(/<title>(.*?)<\/title>/);
         if (!titleMatch) return null;
         
-        let title = titleMatch[1];
-        title = title.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1');
-        title = title.replace(/&amp;/g, '&');
-        title = title.replace(/&lt;/g, '<');
-        title = title.replace(/&gt;/g, '>');
+        const title = cleanText(titleMatch[1]);
         
         const linkMatch = xml.match(/<link>(.*?)<\/link>/);
-        const link = linkMatch ? linkMatch[1] : '#';
+        const link = linkMatch ? cleanText(linkMatch[1]) : '#';
         
+        let author = "Szerkesztőség";
         const authorMatch = xml.match(/<dc:creator>(.*?)<\/dc:creator>/) || xml.match(/<author>(.*?)<\/author>/);
-        let author = authorMatch ? authorMatch[1] : "Szerkesztőség";
-        author = author.replace(/<!\[CDATA\[(.*?)\]\]>/, '$1');
+        if (authorMatch) {
+            author = cleanText(authorMatch[1]);
+            if (author.includes('http') || author.length > 50) author = "Szerkesztőség";
+        }
         
-        const pubDateMatch = xml.match(/<pubDate>(.*?)<\/pubDate>/);
         let time = "friss";
+        const pubDateMatch = xml.match(/<pubDate>(.*?)<\/pubDate>/);
         if (pubDateMatch) {
             try {
                 const d = new Date(pubDateMatch[1]);
-                time = d.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+                if (!isNaN(d.getTime())) {
+                    time = d.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+                }
             } catch(e) {}
         }
         
@@ -84,35 +98,52 @@ function parseRSS(xml, name, defaultBlock) {
 
 async function main() {
     console.log("=== RSS lekérés indítása ===");
+    console.log(`Időpont: ${new Date().toLocaleString('hu-HU')}`);
+    console.log('');
+    
     const results = [];
+    let successCount = 0;
+    let errorCount = 0;
     
     for (const feed of RSS_FEEDS) {
         console.log(`Lekérés: ${feed.name}...`);
         try {
-            const xml = await get(feed.url);
-            if (xml && xml.trim()) {
+            const xml = await fetchUrl(feed.url);
+            if (xml && xml.trim() && xml.includes('<rss') || xml.includes('<feed')) {
                 const article = parseRSS(xml, feed.name, feed.block);
-                if (article) {
+                if (article && article.title && article.title !== '') {
                     results.push(article);
-                    console.log(`  ✅ ${feed.name} sikeres`);
+                    successCount++;
+                    console.log(`  ✅ ${feed.name} - "${article.title.substring(0, 50)}..."`);
                 } else {
+                    errorCount++;
                     console.log(`  ⚠️ ${feed.name} - nem sikerült feldolgozni`);
                 }
             } else {
-                console.log(`  ⚠️ ${feed.name} - üres válasz`);
+                errorCount++;
+                console.log(`  ⚠️ ${feed.name} - üres vagy érvénytelen válasz`);
             }
         } catch(e) {
+            errorCount++;
             console.error(`  ❌ ${feed.name} hiba:`, e.message);
         }
         await new Promise(r => setTimeout(r, 500));
     }
     
-    console.log(`\n✅ Összesen ${results.length} hír betöltve`);
+    console.log('');
+    console.log(`✅ Sikeres: ${successCount} | ❌ Sikertelen: ${errorCount}`);
+    console.log(`📊 Összesen ${results.length} hír betöltve`);
+    
     fs.writeFileSync('hirek.json', JSON.stringify(results, null, 2));
-    console.log("hirek.json mentve");
+    console.log("💾 hirek.json mentve");
+    
+    if (results.length === 0) {
+        console.error("❌ HIBA: Egyetlen hír sem töltődött be!");
+        process.exit(1);
+    }
 }
 
 main().catch(error => {
-    console.error("FATAL HIBA:", error);
+    console.error("❌ FATAL HIBA:", error);
     process.exit(1);
 });
