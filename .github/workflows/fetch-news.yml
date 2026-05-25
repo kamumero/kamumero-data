@@ -10,19 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Repó letöltése
         uses: actions/checkout@v4
-      
+
       - name: Node.js beállítása
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      
+          node-version: '24'  # Itt állítottuk át 20-ról 24-re
+
       - name: RSS lekérés futtatása
         run: node fetch-rss.js
-      
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Hozzáadva a kényszerítéshez
+
       - name: Változások mentése a repóba
         run: |
           git config --local user.email "action@github.com"
