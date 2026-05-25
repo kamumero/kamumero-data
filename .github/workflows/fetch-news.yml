@@ -18,12 +18,12 @@ jobs:
       - name: Node.js beállítása
         uses: actions/setup-node@v4
         with:
-          node-version: '24'  # Itt állítottuk át 20-ról 24-re
+          node-version: '24'  # Módosítva: 20 -> 24
 
       - name: RSS lekérés futtatása
         run: node fetch-rss.js
         env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Hozzáadva a kényszerítéshez
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Új: kényszeríti a Node 24 használatát
 
       - name: Változások mentése a repóba
         run: |
